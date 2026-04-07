@@ -1,0 +1,8 @@
+# Goal: posizione target lungo l'asse X
+float32 target_x
+---
+# Result: posizione finale effettiva al termine
+float32 final_x
+---
+# Feedback: posizione attuale durante il movimento
+float32 current_x
