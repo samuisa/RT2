@@ -8,13 +8,14 @@ def generate_launch_description():
         namespace='',
         package='rclcpp_components',
         executable='component_container',
-        # AGGIUNGI QUESTA RIGA: apre un terminale esterno interattivo
-        prefix=['xterm -e'], 
+        prefix='xterm -e',
         composable_node_descriptions=[
             ComposableNode(
                 package='bme_gazebo_sensors',
                 plugin='bme_gazebo_sensors::MoveActionServer',
                 name='move_server_node',
+                # AGGIUNTA DEL PARAMETRO FRAME:
+                parameters=[{'target_frame': 'base_link'}]
             ),
             ComposableNode(
                 package='bme_gazebo_sensors',

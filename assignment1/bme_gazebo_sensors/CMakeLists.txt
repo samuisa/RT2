@@ -12,11 +12,21 @@ find_package(rclcpp_components REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(action_msg REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 # 1. Action Server Component
 add_library(move_server_component SHARED src/move_server.cpp)
 ament_target_dependencies(move_server_component 
-  rclcpp rclcpp_action rclcpp_components geometry_msgs nav_msgs action_msg)
+  rclcpp 
+  rclcpp_action 
+  rclcpp_components 
+  geometry_msgs 
+  nav_msgs 
+  action_msg 
+  tf2       # <-- AGGIUNTO
+  tf2_ros   # <-- AGGIUNTO
+)
 rclcpp_components_register_node(move_server_component
   PLUGIN "bme_gazebo_sensors::MoveActionServer"
   EXECUTABLE move_server_node

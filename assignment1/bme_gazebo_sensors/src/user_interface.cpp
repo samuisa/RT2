@@ -22,7 +22,9 @@ class UserInterface : public rclcpp::Node {
 public:
     explicit UserInterface(const rclcpp::NodeOptions & options = rclcpp::NodeOptions()) 
     : Node("user_interface_node", options), ui_running_(true) {
-        
+
+        setvbuf(stdout, NULL, _IONBF, 0);
+
         linear_client_ = rclcpp_action::create_client<Linear>(this, "linear_server");
         angular_client_ = rclcpp_action::create_client<Angular>(this, "angular_server");
 
@@ -58,7 +60,9 @@ private:
             std::cout << "1. Set new target (X, Y, Theta)\n";
             std::cout << "2. Cancel current target\n";
             std::cout << "q. Quit (closes component)\n";
-            std::cout << "Choice: ";
+            
+            // AGGIUNTO std::flush
+            std::cout << "Choice: " << std::flush; 
             
             std::cin >> choice;
 
@@ -67,9 +71,10 @@ private:
                 rclcpp::shutdown();
                 break;
             } else if (choice == "1") {
-                std::cout << "Enter X: "; std::cin >> x;
-                std::cout << "Enter Y: "; std::cin >> y;
-                std::cout << "Enter Theta (rad): "; std::cin >> theta;
+                // AGGIUNTO std::flush a tutti i prompt
+                std::cout << "Enter X: " << std::flush; std::cin >> x;
+                std::cout << "Enter Y: " << std::flush; std::cin >> y;
+                std::cout << "Enter Theta (rad): " << std::flush; std::cin >> theta;
                 send_target(x, y, theta);
             } else if (choice == "2") {
                 cancel_target();
