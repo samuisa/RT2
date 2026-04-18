@@ -176,6 +176,9 @@ private:
     while (!update_current_pose() && rclcpp::ok()) { loop_rate.sleep(); }
     double initial_yaw = current_yaw_;
 
+    // FIX: Calcoliamo l'angolo target come rotazione RELATIVA all'orientamento iniziale
+    double target_yaw = initial_yaw + goal->theta;
+
     while (rclcpp::ok()) {
       if (goal_handle->is_canceling()) {
         vel_msg.angular.z = 0.0;
@@ -188,10 +191,14 @@ private:
       // Aggiorna la posa continuamente
       update_current_pose();
 
-      double error = goal->theta - current_yaw_;
+      // Calcoliamo l'errore rispetto al nuovo target_yaw calcolato
+      double error = target_yaw - current_yaw_;
+      
+      // Normalizzazione dell'angolo tra -PI e PI
       while (error > M_PI) error -= 2.0 * M_PI;
       while (error < -M_PI) error += 2.0 * M_PI;
 
+      // Tolleranza per considerare la rotazione completata
       if (std::abs(error) < 0.05) break;
 
       vel_msg.angular.z = (error > 0) ? 0.4 : -0.4;

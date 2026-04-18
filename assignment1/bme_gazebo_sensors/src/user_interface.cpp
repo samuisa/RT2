@@ -59,9 +59,9 @@ private:
             std::cout << "\n=== ROBOT CONTROL MENU ===\n";
             std::cout << "1. Set new target (X, Y, Theta)\n";
             std::cout << "2. Cancel current target\n";
+            std::cout << "3. Rotate only (Relative Theta)\n"; // AGGIUNTA NUOVA OPZIONE
             std::cout << "q. Quit (closes component)\n";
             
-            // AGGIUNTO std::flush
             std::cout << "Choice: " << std::flush; 
             
             std::cin >> choice;
@@ -71,13 +71,24 @@ private:
                 rclcpp::shutdown();
                 break;
             } else if (choice == "1") {
-                // AGGIUNTO std::flush a tutti i prompt
                 std::cout << "Enter X: " << std::flush; std::cin >> x;
+                if(x < -10 || x>10) {
+                    std::cout << "X must be between -10 and 10. Please try again.\n";
+                    continue;
+                }
                 std::cout << "Enter Y: " << std::flush; std::cin >> y;
+                if(y < -10 || y>10) {
+                    std::cout << "Y must be between -10 and 10. Please try again.\n";
+                    continue;
+                }
                 std::cout << "Enter Theta (rad): " << std::flush; std::cin >> theta;
                 send_target(x, y, theta);
             } else if (choice == "2") {
                 cancel_target();
+            } else if (choice == "3") {
+                // GESTIONE DELLA SOLA ROTAZIONE RELATIVA
+                std::cout << "Enter Relative Theta to rotate (rad): " << std::flush; std::cin >> theta;
+                send_angular_target(theta);
             } else {
                 std::cout << "Invalid choice.\n";
             }
