@@ -56,9 +56,9 @@ def generate_launch_description():
 
     # Define the path to your URDF or Xacro file
     urdf_file_path = PathJoinSubstitution([
-        pkg_bme_gazebo_sensors,  # Replace with your package name
+        pkg_bme_gazebo_sensors,  
         "urdf",
-        LaunchConfiguration('model')  # Replace with your URDF or Xacro file
+        LaunchConfiguration('model')  
     ])
 
     world_launch = IncludeLaunchDescription(
@@ -68,6 +68,13 @@ def generate_launch_description():
         launch_arguments={
         'world': LaunchConfiguration('world'),
         }.items()
+    )
+
+    # Launch navigation container
+    navigation_container_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_bme_gazebo_sensors, 'launch', 'navigation_container.launch.py'),
+        )
     )
 
     # Launch rviz
@@ -88,7 +95,7 @@ def generate_launch_description():
         arguments=[
             "-name", "mogi_bot",
             "-topic", "robot_description",
-            "-x", LaunchConfiguration('x'), "-y", LaunchConfiguration('y'), "-z", "0.5", "-Y", LaunchConfiguration('yaw')  # Initial spawn position
+            "-x", LaunchConfiguration('x'), "-y", LaunchConfiguration('y'), "-z", "0.5", "-Y", LaunchConfiguration('yaw')  
         ],
         output="screen",
         parameters=[
@@ -106,7 +113,6 @@ def generate_launch_description():
             "/odom@nav_msgs/msg/Odometry@gz.msgs.Odometry",
             "/joint_states@sensor_msgs/msg/JointState@gz.msgs.Model",
             "/scan@sensor_msgs/msg/LaserScan@gz.msgs.LaserScan",
-            # AGGIUNTA RIGA PER TF2:
             "/tf@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V"
         ],
         output="screen",
@@ -140,7 +146,9 @@ def generate_launch_description():
     launchDescriptionObject.add_action(y_arg)
     launchDescriptionObject.add_action(yaw_arg)
     launchDescriptionObject.add_action(sim_time_arg)
+    
     launchDescriptionObject.add_action(world_launch)
+    launchDescriptionObject.add_action(navigation_container_launch) # <-- AGGIUNTO QUI
     launchDescriptionObject.add_action(rviz_node)
     launchDescriptionObject.add_action(spawn_urdf_node)
     launchDescriptionObject.add_action(gz_bridge_node)

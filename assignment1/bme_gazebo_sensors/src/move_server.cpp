@@ -35,7 +35,7 @@ public:
   {
     using namespace std::placeholders;
 
-    // Parametri per i nomi dei frame (cambiali se il tuo robot in Gazebo usa nomi diversi)
+    // Parametri per i nomi dei frame
     target_frame_ = this->declare_parameter<std::string>("target_frame", "base_footprint");
     source_frame_ = this->declare_parameter<std::string>("source_frame", "odom");
 
@@ -57,7 +57,7 @@ public:
       std::bind(&MoveActionServer::handle_rotate_cancel, this, _1),
       std::bind(&MoveActionServer::handle_rotate_accepted, this, _1));
       
-    RCLCPP_INFO(this->get_logger(), "Move Server avviato con logica TF2!");
+    RCLCPP_INFO(this->get_logger(), "Move Server avviato con logica TF2 (Rotazione Globale)!");
   }
 
 private:
@@ -75,11 +75,9 @@ private:
   double current_y_;
   double current_yaw_;
 
-  // --- NUOVA FUNZIONE: AGGIORNA LA POSA TRAMITE TF2 ---
   bool update_current_pose()
   {
     try {
-      // Cerca la trasformata dalla mappa/odom al robot (es. da "odom" a "base_footprint")
       geometry_msgs::msg::TransformStamped t = tf_buffer_->lookupTransform(
         source_frame_, target_frame_, tf2::TimePointZero);
 
@@ -100,15 +98,14 @@ private:
     }
   }
 
-  // (Le callback Goal, Cancel e Accepted rimangono invariate...)
-  rclcpp_action::GoalResponse handle_move_goal(const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const Linear::Goal> goal) { (void)uuid; (void)goal; return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE; }  rclcpp_action::CancelResponse handle_move_cancel(const std::shared_ptr<GoalHandleLinear> goal_handle) { (void)goal_handle; return rclcpp_action::CancelResponse::ACCEPT; }
+  rclcpp_action::GoalResponse handle_move_goal(const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const Linear::Goal> goal) { (void)uuid; (void)goal; return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE; }
+  rclcpp_action::CancelResponse handle_move_cancel(const std::shared_ptr<GoalHandleLinear> goal_handle) { (void)goal_handle; return rclcpp_action::CancelResponse::ACCEPT; }
   void handle_move_accepted(const std::shared_ptr<GoalHandleLinear> goal_handle) { std::thread{std::bind(&MoveActionServer::execute_move, this, std::placeholders::_1), goal_handle}.detach(); }
 
   rclcpp_action::GoalResponse handle_rotate_goal(const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const Angular::Goal> goal) { (void)uuid; (void)goal; return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE; }
   rclcpp_action::CancelResponse handle_rotate_cancel(const std::shared_ptr<GoalHandleAngular> goal_handle) { (void)goal_handle; return rclcpp_action::CancelResponse::ACCEPT; }
   void handle_rotate_accepted(const std::shared_ptr<GoalHandleAngular> goal_handle) { std::thread{std::bind(&MoveActionServer::execute_rotate, this, std::placeholders::_1), goal_handle}.detach(); }
 
-  // --- ESECUZIONE MOVIMENTO LINEARE ---
   void execute_move(const std::shared_ptr<GoalHandleLinear> goal_handle)
   {
     rclcpp::Rate loop_rate(10);
@@ -126,13 +123,11 @@ private:
         return;
       }
 
-      // 1. Aggiorna la posa PRIMA di calcolare l'errore!
       if (!update_current_pose()) {
         loop_rate.sleep();
-        continue; // Salta il ciclo se la TF non è pronta
+        continue;
       }
 
-      // 2. Calcoli cinematica
       double distance = std::hypot(goal->x - current_x_, goal->y - current_y_);
       if (distance < 0.1) break;
 
@@ -163,7 +158,6 @@ private:
     }
   }
 
-  // --- ESECUZIONE ROTAZIONE ---
   void execute_rotate(const std::shared_ptr<GoalHandleAngular> goal_handle)
   {
     rclcpp::Rate loop_rate(10);
@@ -172,33 +166,32 @@ private:
     auto result = std::make_shared<Angular::Result>();
     auto vel_msg = geometry_msgs::msg::Twist();
 
-    // Attendi la prima TF valida per stabilire il punto di partenza
     while (!update_current_pose() && rclcpp::ok()) { loop_rate.sleep(); }
     double initial_yaw = current_yaw_;
 
-    // FIX: Calcoliamo l'angolo target come rotazione RELATIVA all'orientamento iniziale
-    double target_yaw = initial_yaw + goal->theta;
+    double target_yaw = goal->theta;
+
+    while (target_yaw > M_PI) target_yaw -= 2.0 * M_PI;
+    while (target_yaw < -M_PI) target_yaw += 2.0 * M_PI;
 
     while (rclcpp::ok()) {
       if (goal_handle->is_canceling()) {
         vel_msg.angular.z = 0.0;
         cmd_vel_pub_->publish(vel_msg);
-        result->delta = current_yaw_ - initial_yaw;
+        
+        result->delta = current_yaw_ - initial_yaw; 
+        
         goal_handle->canceled(result);
         return;
       }
 
-      // Aggiorna la posa continuamente
       update_current_pose();
 
-      // Calcoliamo l'errore rispetto al nuovo target_yaw calcolato
       double error = target_yaw - current_yaw_;
       
-      // Normalizzazione dell'angolo tra -PI e PI
       while (error > M_PI) error -= 2.0 * M_PI;
       while (error < -M_PI) error += 2.0 * M_PI;
 
-      // Tolleranza per considerare la rotazione completata
       if (std::abs(error) < 0.05) break;
 
       vel_msg.angular.z = (error > 0) ? 0.4 : -0.4;
@@ -211,11 +204,13 @@ private:
     if (rclcpp::ok()) {
       vel_msg.angular.z = 0.0;
       cmd_vel_pub_->publish(vel_msg);
-      result->delta = current_yaw_ - initial_yaw;
+      
+      result->delta = current_yaw_ - initial_yaw; 
+      
       goal_handle->succeed(result);
     }
   }
 };
-}  // namespace bme_gazebo_sensors
+}
 
 RCLCPP_COMPONENTS_REGISTER_NODE(bme_gazebo_sensors::MoveActionServer)

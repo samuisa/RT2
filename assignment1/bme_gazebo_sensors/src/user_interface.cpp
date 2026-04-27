@@ -28,7 +28,6 @@ public:
         linear_client_ = rclcpp_action::create_client<Linear>(this, "linear_server");
         angular_client_ = rclcpp_action::create_client<Angular>(this, "angular_server");
 
-        // Start the UI loop in a background thread to prevent blocking the component container
         menu_thread_ = std::thread(&UserInterface::run_menu, this);
     }
 
@@ -49,7 +48,6 @@ private:
     bool ui_running_;
 
     void run_menu() {
-        // Short sleep to let the console settle before printing the menu
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         
         std::string choice;
@@ -58,8 +56,8 @@ private:
         while (rclcpp::ok() && ui_running_) {
             std::cout << "\n=== ROBOT CONTROL MENU ===\n";
             std::cout << "1. Set new target (X, Y, Theta)\n";
-            std::cout << "2. Cancel current target\n";
-            std::cout << "3. Rotate only (Relative Theta)\n"; // AGGIUNTA NUOVA OPZIONE
+            std::cout << "2. STOP ALL (Cancel any movement)\n"; 
+            std::cout << "3. Rotate only (Relative Theta)\n"; 
             std::cout << "q. Quit (closes component)\n";
             
             std::cout << "Choice: " << std::flush; 
@@ -84,9 +82,8 @@ private:
                 std::cout << "Enter Theta (rad): " << std::flush; std::cin >> theta;
                 send_target(x, y, theta);
             } else if (choice == "2") {
-                cancel_target();
+                cancel_target(); 
             } else if (choice == "3") {
-                // GESTIONE DELLA SOLA ROTAZIONE RELATIVA
                 std::cout << "Enter Relative Theta to rotate (rad): " << std::flush; std::cin >> theta;
                 send_angular_target(theta);
             } else {
@@ -114,18 +111,20 @@ private:
             else this->linear_goal_handle_ = goal_handle; 
         };
         
-        // MODIFICA QUI: Quando finisce l'azione lineare, invia l'azione angolare
         linear_send_options.result_callback = [this, theta](const GoalHandleLinear::WrappedResult & result) {
-            (void)result; 
             this->linear_goal_handle_.reset(); 
-            RCLCPP_INFO(this->get_logger(), "Movimento lineare completato. Avvio rotazione finale...");
-            this->send_angular_target(theta);
+
+            if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+                RCLCPP_INFO(this->get_logger(), "Movimento lineare completato. Avvio rotazione finale...");
+                this->send_angular_target(theta); 
+            } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
+                RCLCPP_WARN(this->get_logger(), "Movimento lineare interrotto dal comando STOP. Rotazione bloccata.");
+            }
         };
         
         linear_client_->async_send_goal(linear_goal, linear_send_options);
     }
 
-    // NUOVO METODO: Invia solo la rotazione
     void send_angular_target(float theta) {
         RCLCPP_INFO(this->get_logger(), "Inviando Target Angolare -> Theta: %.2f", theta);
         
@@ -137,32 +136,31 @@ private:
             if (!goal_handle) RCLCPP_ERROR(this->get_logger(), "Angular goal rejected.");
             else this->angular_goal_handle_ = goal_handle; 
         };
+        
         angular_send_options.result_callback = [this](const GoalHandleAngular::WrappedResult & result) {
-            (void)result; 
             this->angular_goal_handle_.reset(); 
-            RCLCPP_INFO(this->get_logger(), "Azione completata! Il robot ha raggiunto (X, Y, Theta).");
+            
+            if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+                RCLCPP_INFO(this->get_logger(), "Azione completata! Il robot ha raggiunto (X, Y, Theta).");
+            } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
+                RCLCPP_WARN(this->get_logger(), "Rotazione interrotta dal comando STOP.");
+            }
         };
         
         angular_client_->async_send_goal(angular_goal, angular_send_options);
     }
 
     void cancel_target() {
-        bool canceled = false;
+        RCLCPP_WARN(this->get_logger(), "!!! RICEVUTO COMANDO DI STOP: Cancello tutte le azioni in corso !!!");
+
         if (linear_goal_handle_) {
             linear_client_->async_cancel_goal(linear_goal_handle_);
-            linear_goal_handle_.reset();
-            canceled = true;
         }
         if (angular_goal_handle_) {
             angular_client_->async_cancel_goal(angular_goal_handle_);
-            angular_goal_handle_.reset();
-            canceled = true;
-        }
-        if (!canceled) {
-            RCLCPP_WARN(this->get_logger(), "No active target to cancel.");
         }
     }
 };
-} // namespace bme_gazebo_sensors
+}
 
 RCLCPP_COMPONENTS_REGISTER_NODE(bme_gazebo_sensors::UserInterface)

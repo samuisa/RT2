@@ -14,7 +14,6 @@ def generate_launch_description():
                 package='bme_gazebo_sensors',
                 plugin='bme_gazebo_sensors::MoveActionServer',
                 name='move_server_node',
-                # AGGIUNTA DEL PARAMETRO FRAME:
                 parameters=[{'target_frame': 'base_link'}]
             ),
             ComposableNode(
