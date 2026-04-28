@@ -1,14 +1,13 @@
-# bme_gazebo_sensors
+# Assignment 1
 
 This project is a ROS 2 package designed to control and navigate a simulated robot in Gazebo Sim. It uses an architecture based on **Action Server/Client** and **TF2** for pose calculation, providing an interactive Command Line Interface (CLI) to send movement commands to the robot.
 
 ## Main Features
 
-* **CLI Interface (User Interface):** An interactive menu running in a separate terminal (`xterm`) that allows the user to send target coordinates (X, Y, Theta), perform rotation-only movements, or cancel ongoing actions (E-STOP).
+* **CLI Interface (User Interface):** An interactive menu running in a separate terminal (`xterm`) that allows the user to send target coordinates (X, Y, Theta), or cancel ongoing actions (E-STOP).
 * **Move Action Server:** An action server that calculates and publishes velocity commands on `/cmd_vel` based on real-time position and orientation errors.
 * **TF2 Integration:** Robot localization is handled by listening to real-time transforms from the `odom` frame to the `base_footprint` (or `base_link`) frame.
 * **ROS 2 Components:** Both control nodes (`MoveActionServer` and `UserInterface`) are implemented as components (`rclcpp_components`) and run inside a single `ComposableNodeContainer` to optimize performance.
-* **Gazebo-ROS 2 Bridge:** Seamless communication between ROS 2 and Gazebo via `ros_gz_bridge` for clock, odometry, laser scan, TF, and cmd_vel.
 
 ---
 
@@ -29,35 +28,31 @@ Defines the actions used for asynchronous communication:
 
 ## Build Instructions
 
-1. Clone the repository into your ROS 2 workspace (e.g., `~/ros2_ws/src`).
-2. Ensure you have both the main package and the custom messages package (`action_msg`).
-3. Build the project using `colcon`:
-
-    ```bash
-    cd ~/ros2_ws
-    colcon build
-    ```
-
-4. Source the environment:
-
-    ```bash
-    source install/setup.bash
-    ```
+ Source the environment:
+ 
+```bash
+source /opt/ros/jazzy/setup.bash &&
+colcon build &&
+source install/local_setup.sh
+```
 
 ---
 
 ## Execution
 
-To start the entire simulation, bridges, RViz, and the user interface, use the main launch file. Assuming your file is named `main.launch.py`:
+To launch the complete simulation environment—including the bridges, RViz, and the container hosting both the `user_interface_node` and `move_server_node` —run the following command:
 
 ```bash
 ros2 launch bme_gazebo_sensors spawn_robot_ex.launch.py
 ```
+This command will automatically open two `xterm` windows: one for interacting with the user interface, and another to monitor the server node's feedback, warnings, and info logs.
 
-## Usage Guide (CLI Menu)
+---
 
-- **Option 1:** You will be prompted to enter the X and Y coordinates (limited between -10 and 10) and the final orientation Theta (in radians). The robot will move to the point and then rotate.
-- **Option 2:** Instantly stops the robot by canceling all ongoing linear and angular actions.
+## Usage Guide (user interface)
+
+- **Option 1:** You will be prompted to enter the X and Y coordinates (limited between -10 and 10) and the final orientation Theta (in radians), measured with respect to the absolute frane. The robot will move to the point and then rotate.
+- **Option c:** While running, instantly stops the robot by canceling all ongoing linear and angular actions.
 - **Option q:** Safely closes the interface and shuts down the UserInterface node.
 
 

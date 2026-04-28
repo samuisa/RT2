@@ -3,6 +3,7 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <atomic> 
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -11,6 +12,7 @@
 #include "action_msg/action/linear.hpp"
 #include "action_msg/action/angular.hpp"
 
+// Aliases for better readability
 using Linear = action_msg::action::Linear;
 using Angular = action_msg::action::Angular;
 using GoalHandleLinear = rclcpp_action::ClientGoalHandle<Linear>;
@@ -21,17 +23,21 @@ namespace bme_gazebo_sensors
 class UserInterface : public rclcpp::Node {
 public:
     explicit UserInterface(const rclcpp::NodeOptions & options = rclcpp::NodeOptions()) 
-    : Node("user_interface_node", options), ui_running_(true) {
+    : Node("user_interface_node", options), ui_running_(true), is_moving_(false) {
 
+        // Disable output buffering for standard output to ensure immediate console printing
         setvbuf(stdout, NULL, _IONBF, 0);
 
+        // Initialize action clients for linear and angular movements
         linear_client_ = rclcpp_action::create_client<Linear>(this, "linear_server");
         angular_client_ = rclcpp_action::create_client<Angular>(this, "angular_server");
 
+        // Launch the User Interface in a separate thread to prevent blocking the ROS 2 executor
         menu_thread_ = std::thread(&UserInterface::run_menu, this);
     }
 
     ~UserInterface() {
+        // Safely shutdown the UI thread when the node is destroyed
         ui_running_ = false;
         if (menu_thread_.joinable()) {
             menu_thread_.join();
@@ -39,120 +45,188 @@ public:
     }
 
 private:
+    // Action clients
     rclcpp_action::Client<Linear>::SharedPtr linear_client_;
     rclcpp_action::Client<Angular>::SharedPtr angular_client_;
+    
+    // Handles for tracking the current ongoing goals
     GoalHandleLinear::SharedPtr linear_goal_handle_;
     GoalHandleAngular::SharedPtr angular_goal_handle_;
     
+    // UI execution variables
     std::thread menu_thread_;
     bool ui_running_;
+    
+    // Thread-safe flag to track if the robot is currently executing an action
+    std::atomic<bool> is_moving_; 
 
+    // --- METHOD TO PRINT CONTEXT-AWARE MENU ---
+    void print_menu() {
+        // Show a different menu depending on the robot's current state
+        if (is_moving_) {
+            std::cout << "\n=== ACTION IN PROGRESS ===\n";
+            std::cout << "press 'c' to STOP ALL (Cancel any movement)\n";
+        } else {
+            std::cout << "\n=== ROBOT CONTROL MENU ===\n";
+            std::cout << "1. Set new target (X, Y, Theta)\n";
+            std::cout << "q. Quit (closes component)\n";
+        }
+        std::cout << "Choice: " << std::flush; 
+    }
+
+    // --- MAIN UI LOOP ---
     void run_menu() {
+        // Small delay to allow ROS 2 logs to print before the first menu appears
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         
         std::string choice;
         float x, y, theta;
 
         while (rclcpp::ok() && ui_running_) {
-            std::cout << "\n=== ROBOT CONTROL MENU ===\n";
-            std::cout << "1. Set new target (X, Y, Theta)\n";
-            std::cout << "2. STOP ALL (Cancel any movement)\n"; 
-            std::cout << "3. Rotate only (Relative Theta)\n"; 
-            std::cout << "q. Quit (closes component)\n";
             
-            std::cout << "Choice: " << std::flush; 
+            print_menu(); // Print the menu at every iteration
             
+            // Blocking wait for user input
             std::cin >> choice;
 
+            // Handle Quit command
             if (choice == "q" || choice == "Q") {
                 std::cout << "Exiting UI component...\n";
                 rclcpp::shutdown();
                 break;
-            } else if (choice == "1") {
-                std::cout << "Enter X: " << std::flush; std::cin >> x;
-                if(x < -10 || x>10) {
-                    std::cout << "X must be between -10 and 10. Please try again.\n";
-                    continue;
+            } 
+            // Handle New Target command
+            else if (choice == "1") {
+                if (is_moving_) {
+                    std::cout << "Robot is currently moving! Press 'c' to stop first.\n";
+                } else {
+                    std::cout << "Enter X: " << std::flush; std::cin >> x;
+                    if(x < -10 || x > 10) {
+                        std::cout << "X must be between -10 and 10. Please try again.\n";
+                        continue;
+                    }
+                    std::cout << "Enter Y: " << std::flush; std::cin >> y;
+                    if(y < -10 || y > 10) {
+                        std::cout << "Y must be between -10 and 10. Please try again.\n";
+                        continue;
+                    }
+                    std::cout << "Enter Theta (rad): " << std::flush; std::cin >> theta;
+                    
+                    // Send the full target sequence (Linear, then Angular)
+                    send_target(x, y, theta);
                 }
-                std::cout << "Enter Y: " << std::flush; std::cin >> y;
-                if(y < -10 || y>10) {
-                    std::cout << "Y must be between -10 and 10. Please try again.\n";
-                    continue;
+            } 
+            // Handle Stop/Cancel command
+            else if (choice == "c" || choice == "C") {
+                if (!is_moving_) {
+                    std::cout << "No movement in progress to stop.\n";
+                } else {
+                    cancel_target();
                 }
-                std::cout << "Enter Theta (rad): " << std::flush; std::cin >> theta;
-                send_target(x, y, theta);
-            } else if (choice == "2") {
-                cancel_target(); 
-            } else if (choice == "3") {
-                std::cout << "Enter Relative Theta to rotate (rad): " << std::flush; std::cin >> theta;
-                send_angular_target(theta);
             } else {
                 std::cout << "Invalid choice.\n";
             }
         }
     }
 
+    // --- SEND LINEAR TARGET ---
     void send_target(float x, float y, float theta) {
+        // Ensure action servers are up and running before sending goals
         if (!linear_client_->wait_for_action_server(std::chrono::seconds(2)) ||
             !angular_client_->wait_for_action_server(std::chrono::seconds(2))) {
             RCLCPP_ERROR(this->get_logger(), "Action Servers offline.");
             return;
         }
 
-        RCLCPP_INFO(this->get_logger(), "Inviando Target Lineare -> X: %.2f, Y: %.2f", x, y);
+        // Lock the UI into "moving" state
+        is_moving_ = true; 
+        RCLCPP_INFO(this->get_logger(), "Sending Linear Target -> X: %.2f, Y: %.2f", x, y);
 
+        // Populate the linear goal message
         auto linear_goal = Linear::Goal();
         linear_goal.x = x; 
         linear_goal.y = y;
 
         auto linear_send_options = rclcpp_action::Client<Linear>::SendGoalOptions();
-        linear_send_options.goal_response_callback = [this](const GoalHandleLinear::SharedPtr & goal_handle) {
-            if (!goal_handle) RCLCPP_ERROR(this->get_logger(), "Linear goal rejected.");
-            else this->linear_goal_handle_ = goal_handle; 
-        };
         
-        linear_send_options.result_callback = [this, theta](const GoalHandleLinear::WrappedResult & result) {
-            this->linear_goal_handle_.reset(); 
-
-            if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
-                RCLCPP_INFO(this->get_logger(), "Movimento lineare completato. Avvio rotazione finale...");
-                this->send_angular_target(theta); 
-            } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
-                RCLCPP_WARN(this->get_logger(), "Movimento lineare interrotto dal comando STOP. Rotazione bloccata.");
+        // Callback triggered when the server accepts or rejects the goal
+        linear_send_options.goal_response_callback = [this](const GoalHandleLinear::SharedPtr & goal_handle) {
+            if (!goal_handle) {
+                RCLCPP_ERROR(this->get_logger(), "Linear goal rejected.");
+                this->is_moving_ = false; // Reset state if rejected
+                this->print_menu();       // Reprint the idle menu
+            }
+            else {
+                this->linear_goal_handle_ = goal_handle; // Store handle for potential cancellation
             }
         };
         
+        // Callback triggered when the linear movement action is fully completed, failed, or canceled
+        linear_send_options.result_callback = [this, theta](const GoalHandleLinear::WrappedResult & result) {
+            this->linear_goal_handle_.reset(); // Clear the handle
+
+            if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+                // If linear movement succeeds, proceed to chain the angular rotation
+                this->send_angular_target(theta); 
+            } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
+                // If canceled by the user, reset state and update UI
+                this->is_moving_ = false; 
+                this->print_menu();
+            } else {
+                // Handle any other failure types
+                this->is_moving_ = false; 
+                this->print_menu();
+            }
+        };
+        
+        // Send the goal asynchronously
         linear_client_->async_send_goal(linear_goal, linear_send_options);
     }
 
+    // --- SEND ANGULAR TARGET ---
     void send_angular_target(float theta) {
-        RCLCPP_INFO(this->get_logger(), "Inviando Target Angolare -> Theta: %.2f", theta);
+        RCLCPP_INFO(this->get_logger(), "Sending Angular Target -> Theta: %.2f", theta);
         
+        // Populate the angular goal message
         auto angular_goal = Angular::Goal();
         angular_goal.theta = theta; 
 
         auto angular_send_options = rclcpp_action::Client<Angular>::SendGoalOptions();
+        
+        // Callback triggered when the server accepts or rejects the angular goal
         angular_send_options.goal_response_callback = [this](const GoalHandleAngular::SharedPtr & goal_handle) {
-            if (!goal_handle) RCLCPP_ERROR(this->get_logger(), "Angular goal rejected.");
-            else this->angular_goal_handle_ = goal_handle; 
+            if (!goal_handle) {
+                RCLCPP_ERROR(this->get_logger(), "Angular goal rejected.");
+                this->is_moving_ = false;
+                this->print_menu();
+            }
+            else {
+                this->angular_goal_handle_ = goal_handle; 
+            }
         };
         
+        // Callback triggered when the angular rotation action concludes
         angular_send_options.result_callback = [this](const GoalHandleAngular::WrappedResult & result) {
             this->angular_goal_handle_.reset(); 
             
             if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
-                RCLCPP_INFO(this->get_logger(), "Azione completata! Il robot ha raggiunto (X, Y, Theta).");
-            } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
-                RCLCPP_WARN(this->get_logger(), "Rotazione interrotta dal comando STOP.");
+                RCLCPP_INFO(this->get_logger(), "Action completed! The robot has reached (X, Y, Theta).");
             }
+
+            // The entire sequence (linear + angular) is now finished (either by success or cancellation)
+            this->is_moving_ = false; 
+            
+            // Refresh the UI to show the idle menu
+            this->print_menu();
         };
         
+        // Send the goal asynchronously
         angular_client_->async_send_goal(angular_goal, angular_send_options);
     }
 
+    // --- CANCEL ONGOING ACTIONS ---
     void cancel_target() {
-        RCLCPP_WARN(this->get_logger(), "!!! RICEVUTO COMANDO DI STOP: Cancello tutte le azioni in corso !!!");
-
+        // Send a cancellation request to whichever goal is currently active
         if (linear_goal_handle_) {
             linear_client_->async_cancel_goal(linear_goal_handle_);
         }
@@ -163,4 +237,5 @@ private:
 };
 }
 
+// Register the component so it can be loaded dynamically in ROS 2
 RCLCPP_COMPONENTS_REGISTER_NODE(bme_gazebo_sensors::UserInterface)

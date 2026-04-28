@@ -3,12 +3,13 @@ from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 
 def generate_launch_description():
-    container = ComposableNodeContainer(
-        name='navigation_container',
+    
+    server_container = ComposableNodeContainer(
+        name='server_container',
         namespace='',
         package='rclcpp_components',
         executable='component_container',
-        prefix='xterm -e',
+        prefix='xterm -T "Action Server" -e', 
         composable_node_descriptions=[
             ComposableNode(
                 package='bme_gazebo_sensors',
@@ -16,6 +17,17 @@ def generate_launch_description():
                 name='move_server_node',
                 parameters=[{'target_frame': 'base_link'}]
             ),
+        ],
+        output='screen',
+    )
+
+    ui_container = ComposableNodeContainer(
+        name='ui_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container',
+        prefix='xterm -T "Robot Control Menu" -e', 
+        composable_node_descriptions=[
             ComposableNode(
                 package='bme_gazebo_sensors',
                 plugin='bme_gazebo_sensors::UserInterface',
@@ -25,4 +37,7 @@ def generate_launch_description():
         output='screen',
     )
 
-    return LaunchDescription([container])
+    return LaunchDescription([
+        server_container,
+        ui_container
+    ])
