@@ -51,7 +51,7 @@ This command will automatically open two `xterm` windows: one for interacting wi
 
 ## Usage Guide (user interface)
 
-- **Option 1:** You will be prompted to enter the X and Y coordinates (limited between -10 and 10) and the final orientation Theta (in radians), measured with respect to the absolute frane. The robot will move to the point and then rotate.
+- **Option 1:** You will be prompted to enter the X and Y coordinates (limited between -10 and 10) and the final orientation Theta (in radians), measured with respect to the absolute frane. The robot will move to the point and then rotate. If the robot is running you can change the target in real-time by sending new coordinates
 - **Option c:** While running, instantly stops the robot by canceling all ongoing linear and angular actions.
 - **Option q:** Safely closes the interface and shuts down the UserInterface node.
 
