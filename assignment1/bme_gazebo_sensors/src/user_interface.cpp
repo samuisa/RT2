@@ -23,7 +23,7 @@ namespace bme_gazebo_sensors
 class UserInterface : public rclcpp::Node {
 public:
     explicit UserInterface(const rclcpp::NodeOptions & options = rclcpp::NodeOptions()) 
-    : Node("user_interface_node", options), ui_running_(true), is_moving_(false) {
+    : Node("user_interface_node", options), ui_running_(true), is_moving_(false), canceling_for_new_target_(false) {
 
         // Disable output buffering for standard output to ensure immediate console printing
         setvbuf(stdout, NULL, _IONBF, 0);
@@ -59,13 +59,16 @@ private:
     
     // Thread-safe flag to track if the robot is currently executing an action
     std::atomic<bool> is_moving_; 
+    std::atomic<bool> canceling_for_new_target_;
 
     // --- METHOD TO PRINT CONTEXT-AWARE MENU ---
     void print_menu() {
         // Show a different menu depending on the robot's current state
         if (is_moving_) {
             std::cout << "\n=== ACTION IN PROGRESS ===\n";
-            std::cout << "press 'c' to STOP ALL (Cancel any movement)\n";
+            std::cout << "1. Set new target (X, Y, Theta)\n";
+            std::cout << "c. STOP ALL (Cancel any movement)\n";
+            std::cout << "q. Quit (closes component)\n";
         } else {
             std::cout << "\n=== ROBOT CONTROL MENU ===\n";
             std::cout << "1. Set new target (X, Y, Theta)\n";
@@ -98,7 +101,21 @@ private:
             // Handle New Target command
             else if (choice == "1") {
                 if (is_moving_) {
-                    std::cout << "Robot is currently moving! Press 'c' to stop first.\n";
+                    std::cout << "Enter X: " << std::flush; std::cin >> x;
+                    if(x < -10 || x > 10) {
+                        std::cout << "X must be between -10 and 10. Please try again.\n";
+                        continue;
+                    }
+                    std::cout << "Enter Y: " << std::flush; std::cin >> y;
+                    if(y < -10 || y > 10) {
+                        std::cout << "Y must be between -10 and 10. Please try again.\n";
+                        continue;
+                    }
+                    std::cout << "Enter Theta (rad): " << std::flush; std::cin >> theta;
+                    // If already moving, cancel the current action before sending the new target
+                    canceling_for_new_target_ = true; 
+                    cancel_target();
+                    send_target(x, y, theta);
                 } else {
                     std::cout << "Enter X: " << std::flush; std::cin >> x;
                     if(x < -10 || x > 10) {
@@ -121,6 +138,7 @@ private:
                 if (!is_moving_) {
                     std::cout << "No movement in progress to stop.\n";
                 } else {
+                    canceling_for_new_target_ = false;
                     cancel_target();
                 }
             } else {
@@ -169,7 +187,14 @@ private:
                 // If linear movement succeeds, proceed to chain the angular rotation
                 this->send_angular_target(theta); 
             } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
-                // If canceled by the user, reset state and update UI
+                if (this->canceling_for_new_target_) {
+                    this->canceling_for_new_target_ = false;
+                } else {
+                    this->is_moving_ = false; 
+                    this->print_menu();
+                }
+            } else if(result.code == rclcpp_action::ResultCode::ABORTED) {
+                RCLCPP_ERROR(this->get_logger(), "Target aborted.");
                 this->is_moving_ = false; 
                 this->print_menu();
             } else {
@@ -205,19 +230,24 @@ private:
             }
         };
         
-        // Callback triggered when the angular rotation action concludes
         angular_send_options.result_callback = [this](const GoalHandleAngular::WrappedResult & result) {
             this->angular_goal_handle_.reset(); 
             
             if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
                 RCLCPP_INFO(this->get_logger(), "Action completed! The robot has reached (X, Y, Theta).");
+                this->is_moving_ = false; 
+                this->print_menu();
+            } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
+                if (this->canceling_for_new_target_) {
+                    this->canceling_for_new_target_ = false;
+                } else {
+                    this->is_moving_ = false; 
+                    this->print_menu();
+                }
+            } else {
+                this->is_moving_ = false; 
+                this->print_menu();
             }
-
-            // The entire sequence (linear + angular) is now finished (either by success or cancellation)
-            this->is_moving_ = false; 
-            
-            // Refresh the UI to show the idle menu
-            this->print_menu();
         };
         
         // Send the goal asynchronously
@@ -237,5 +267,4 @@ private:
 };
 }
 
-// Register the component so it can be loaded dynamically in ROS 2
 RCLCPP_COMPONENTS_REGISTER_NODE(bme_gazebo_sensors::UserInterface)
